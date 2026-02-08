@@ -1,36 +1,31 @@
 import telebot
 from telebot import types
 import json
+import requests
 from datetime import datetime
-from github import Github
 import time
 import threading
 import os
-from flask import Flask
-from github import InputFileContent 
+from flask import Flask, request
 
-# ===== ENVIRONMENT VARIABLES (FOR DEPLOYMENT) =====
+# ===== ENVIRONMENT VARIABLES =====
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 GIST_ID = os.environ.get('GIST_ID')
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')
 WEBAPP_URL = os.environ.get('WEBAPP_URL', 'https://your-app.vercel.app')
 PORT = int(os.environ.get('PORT', 10000))
-# ==================================================
 
 if not BOT_TOKEN or not GIST_ID or not GITHUB_TOKEN:
-    print("❌ ERROR: Missing required environment variables!")
+    print("❌ ERROR: Missing environment variables!")
     print("Required: BOT_TOKEN, GIST_ID, GITHUB_TOKEN")
     exit(1)
 
 bot = telebot.TeleBot(BOT_TOKEN)
 user_states = {}
 budget_data = None
-
-# Category structure - will be loaded from Gist
 CATEGORIES = {}
 
 def load_budget_from_gist():
-    """Load budget data from GitHub Gist"""
     global budget_data, CATEGORIES
     try:
         headers = {
@@ -44,11 +39,9 @@ def load_budget_from_gist():
             budget_json = gist_data['files']['budget.json']['content']
             budget_data = json.loads(budget_json)
             
-            # Ensure activityLog exists
-            if 'activityLog' not in budget_data:
+            if 'activityLog' not in budget_
                 budget_data['activityLog'] = []
             
-            # Build categories dynamically from budget data
             CATEGORIES = {}
             for master_cat in budget_data.get('masterCategories', []):
                 subcategories = [
@@ -60,17 +53,16 @@ def load_budget_from_gist():
                     'subcategories': subcategories
                 }
             
-            print(f"✅ Budget data loaded: {len(budget_data.get('categories', []))} categories, {len(budget_data.get('transactions', []))} transactions, {len(budget_data.get('activityLog', []))} activities")
+            print(f"✅ Loaded: {len(budget_data.get('categories', []))} cats, {len(budget_data.get('activityLog', []))} activities")
             return True
         else:
-            print(f"❌ Failed to load from Gist: {response.status_code}")
+            print(f"❌ Gist load failed: {response.status_code}")
             return False
     except Exception as e:
-        print(f"❌ Error loading from Gist: {e}")
+        print(f"❌ Error: {e}")
         return False
 
 def save_budget_to_gist():
-    """Save budget data to GitHub Gist"""
     global budget_data
     try:
         headers = {
@@ -80,7 +72,7 @@ def save_budget_to_gist():
         }
         
         payload = {
-            'description': 'Budget Tracker Data - Full Sync',
+            'description': 'Budget Tracker Data',
             'files': {
                 'budget.json': {
                     'content': json.dumps(budget_data, indent=2)
@@ -95,21 +87,14 @@ def save_budget_to_gist():
         )
         
         if response.status_code == 200:
-            print("✅ Budget data saved to Gist (including activityLog)")
+            print("✅ Saved to Gist")
             return True
         else:
-            print(f"❌ Failed to save to Gist: {response.status_code}")
+            print(f"❌ Save failed: {response.status_code}")
             return False
     except Exception as e:
-        print(f"❌ Error saving to Gist: {e}")
+        print(f"❌ Save error: {e}")
         return False
-
-def auto_sync_thread():
-    """Background thread to sync data every 60 seconds"""
-    while True:
-        time.sleep(60)
-        print("🔄 Auto-syncing from Gist...")
-        load_budget_from_gist()
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -122,15 +107,10 @@ def send_welcome(message):
     )
     
     bot.reply_to(message, 
-        f"👋 *Welcome to Budget Tracker Pro!*\n\n"
-        f"📱 Your Chat ID: `{message.chat.id}`\n"
-        f"_(Use this in web app settings)_\n\n"
-        f"🆕 *Features:*\n"
-        f"• Real-time sync via GitHub Gist\n"
-        f"• Activity Log support (web app)\n"
-        f"• Add expenses/income on-the-go\n"
-        f"• Full analytics\n\n"
-        f"Choose an option below:",
+        f"👋 *Budget Tracker Pro*\n\n"
+        f"📱 Chat ID: `{message.chat.id}`\n\n"
+        f"✅ Activity Log support\n"
+        f"✅ Real-time cloud sync",
         reply_markup=markup,
         parse_mode='Markdown'
     )
@@ -140,23 +120,16 @@ def start_expense(message):
     load_budget_from_gist()
     
     if not CATEGORIES:
-        bot.reply_to(message, "⚠️ No categories found. Please set up categories in the web app first.")
+        bot.reply_to(message, "⚠️ Set up categories in web app first")
         return
     
     user_states[message.chat.id] = {'action': 'expense', 'step': 'master_category'}
     
     markup = types.InlineKeyboardMarkup(row_width=2)
     for cat_id, cat_data in CATEGORIES.items():
-        markup.add(types.InlineKeyboardButton(
-            cat_data['name'], 
-            callback_data=f'master_{cat_id}'
-        ))
+        markup.add(types.InlineKeyboardButton(cat_data['name'], callback_data=f'master_{cat_id}'))
     
-    bot.reply_to(message, 
-        "💸 *Add Expense*\n\nSelect master category:",
-        parse_mode='Markdown',
-        reply_markup=markup
-    )
+    bot.reply_to(message, "💸 *Add Expense*\n\nSelect category:", parse_mode='Markdown', reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('master_'))
 def master_category_selected(call):
@@ -171,14 +144,11 @@ def master_category_selected(call):
         subcategories = CATEGORIES[master_cat_id]['subcategories']
         
         if not subcategories:
-            bot.answer_callback_query(call.id, "⚠️ No subcategories in this group")
+            bot.answer_callback_query(call.id, "⚠️ No subcategories")
             return
         
         for subcat in subcategories:
-            markup.add(types.InlineKeyboardButton(
-                subcat, 
-                callback_data=f'subcat_{subcat}'
-            ))
+            markup.add(types.InlineKeyboardButton(subcat, callback_data=f'subcat_{subcat}'))
         
         bot.edit_message_text(
             f"✅ {CATEGORIES[master_cat_id]['name']}\n\nSelect subcategory:",
@@ -198,7 +168,7 @@ def subcategory_selected(call):
         user_states[chat_id]['step'] = 'amount'
         
         bot.edit_message_text(
-            f"✅ Category: *{subcategory}*\n\nEnter amount (e.g., 25.50):",
+            f"✅ Category: *{subcategory}*\n\nEnter amount:",
             chat_id=chat_id,
             message_id=call.message.message_id,
             parse_mode='Markdown'
@@ -218,34 +188,29 @@ def handle_user_input(message):
             try:
                 amount = float(message.text.replace('$', '').replace(',', ''))
                 if amount <= 0:
-                    bot.reply_to(message, "❌ Amount must be greater than zero")
+                    bot.reply_to(message, "❌ Amount must be > 0")
                     return
                 
                 state['amount'] = amount
                 state['step'] = 'description'
-                bot.reply_to(message, 
-                    f"💰 Amount: ${amount:.2f}\n\nEnter description (e.g., 'Starbucks coffee'):"
-                )
+                bot.reply_to(message, f"💰 ${amount:.2f}\n\nEnter description:")
             except ValueError:
-                bot.reply_to(message, "❌ Please enter a valid number (e.g., 25.50)")
+                bot.reply_to(message, "❌ Invalid number")
         
         elif state['step'] == 'description':
             description = message.text
             category_name = state['category']
             amount = state['amount']
             
-            # Load latest data
             load_budget_from_gist()
             
-            # Find category ID
             category = next((c for c in budget_data['categories'] if c['name'] == category_name), None)
             
             if not category:
-                bot.reply_to(message, "❌ Category not found. Please try again.")
+                bot.reply_to(message, "❌ Category not found")
                 del user_states[chat_id]
                 return
             
-            # Add transaction
             transaction = {
                 'id': int(time.time() * 1000),
                 'payee': description,
@@ -255,13 +220,11 @@ def handle_user_input(message):
             }
             
             budget_data['transactions'].append(transaction)
-            
-            # Update category activity
             category['activity'] = (category.get('activity', 0) or 0) - amount
             
-            # ✅ Log to activityLog (for web app Activity Log)
-            if 'activityLog' not in budget_data:
+            if 'activityLog' not in budget_
                 budget_data['activityLog'] = []
+            
             budget_data['activityLog'].append({
                 'id': transaction['id'],
                 'type': 'expense',
@@ -271,21 +234,16 @@ def handle_user_input(message):
                 'amount': amount
             })
             
-            # Save to Gist
             if save_budget_to_gist():
                 bot.reply_to(message, 
-                    f"✅ *Expense Added Successfully!*\n\n"
-                    f"💰 Amount: ${amount:.2f}\n"
-                    f"📁 Category: {category_name}\n"
-                    f"📝 Description: {description}\n"
-                    f"📅 Date: {transaction['date']}\n\n"
-                    f"🔄 Synced to cloud (Activity Log updated)\n"
-                    f"📱 Open web app to see in Activity Log\n\n"
-                    f"[Open App]({WEBAPP_URL})",
+                    f"✅ *Expense Added!*\n\n"
+                    f"💰 ${amount:.2f} | {category_name}\n"
+                    f"📝 {description}\n"
+                    f"🔄 Activity Log synced",
                     parse_mode='Markdown'
                 )
             else:
-                bot.reply_to(message, "❌ Failed to sync. Please try again.")
+                bot.reply_to(message, "❌ Sync failed")
             
             del user_states[chat_id]
     
@@ -294,25 +252,21 @@ def handle_user_input(message):
             try:
                 amount = float(message.text.replace('$', '').replace(',', ''))
                 if amount <= 0:
-                    bot.reply_to(message, "❌ Amount must be greater than zero")
+                    bot.reply_to(message, "❌ Amount must be > 0")
                     return
                 
                 state['amount'] = amount
                 state['step'] = 'description'
-                bot.reply_to(message, 
-                    f"💰 Amount: ${amount:.2f}\n\nEnter description (e.g., 'Monthly salary'):"
-                )
+                bot.reply_to(message, f"💰 ${amount:.2f}\n\nEnter description:")
             except ValueError:
-                bot.reply_to(message, "❌ Please enter a valid number")
+                bot.reply_to(message, "❌ Invalid number")
         
         elif state['step'] == 'description':
             description = message.text
             amount = state['amount']
             
-            # Load latest data
             load_budget_from_gist()
             
-            # Add income
             income = {
                 'id': int(time.time() * 1000),
                 'amount': amount,
@@ -322,9 +276,9 @@ def handle_user_input(message):
             
             budget_data['income'].append(income)
             
-            # ✅ Log to activityLog (for web app Activity Log)
-            if 'activityLog' not in budget_data:
+            if 'activityLog' not in budget_
                 budget_data['activityLog'] = []
+            
             budget_data['activityLog'].append({
                 'id': income['id'],
                 'type': 'income',
@@ -333,20 +287,16 @@ def handle_user_input(message):
                 'description': description
             })
             
-            # Save to Gist
             if save_budget_to_gist():
                 bot.reply_to(message, 
-                    f"✅ *Income Added Successfully!*\n\n"
-                    f"💰 Amount: ${amount:.2f}\n"
-                    f"📝 Description: {description}\n"
-                    f"📅 Date: {income['date']}\n\n"
-                    f"🔄 Synced to cloud (Activity Log updated)\n"
-                    f"📱 *To Be Budgeted: ${amount:.2f}*\n\n"
-                    f"[Open App]({WEBAPP_URL})",
+                    f"✅ *Income Added!*\n\n"
+                    f"💰 ${amount:.2f}\n"
+                    f"📝 {description}\n"
+                    f"🔄 Activity Log synced",
                     parse_mode='Markdown'
                 )
             else:
-                bot.reply_to(message, "❌ Failed to sync. Please try again.")
+                bot.reply_to(message, "❌ Sync failed")
             
             del user_states[chat_id]
 
@@ -355,111 +305,55 @@ def start_income(message):
     user_states[message.chat.id] = {'action': 'income', 'step': 'amount'}
     bot.reply_to(message, "💰 *Add Income*\n\nEnter amount:", parse_mode='Markdown')
 
-@bot.message_handler(commands=['analytics', 'summary'])
+@bot.message_handler(commands=['analytics'])
 def show_analytics(message):
     load_budget_from_gist()
     
-    if not budget_data:
-        bot.reply_to(message, "⚠️ No data available yet")
+    if not budget_
+        bot.reply_to(message, "⚠️ No data")
         return
     
-    # Calculate stats
     total_income = sum(inc.get('amount', 0) for inc in budget_data.get('income', []))
-    total_spent = sum(trans.get('amount', 0) for trans in budget_data.get('transactions', []))
-    total_budgeted = sum(cat.get('budgeted', 0) for cat in budget_data.get('categories', []))
-    to_be_budgeted = total_income - total_budgeted
+    total_spent = sum(t.get('amount', 0) for t in budget_data.get('transactions', []))
+    total_budgeted = sum(c.get('budgeted', 0) for c in budget_data.get('categories', []))
     
-    # Current month spending
-    now = datetime.now()
-    current_month = f"{now.year}-{now.month:02d}"
-    month_transactions = [t for t in budget_data.get('transactions', []) if t.get('date', '').startswith(current_month)]
-    month_spending = sum(t.get('amount', 0) for t in month_transactions)
-    
-    response = (
-        f"📊 *Financial Summary*\n\n"
-        f"💰 Total Income: ${total_income:.2f}\n"
-        f"💸 Total Spent: ${total_spent:.2f}\n"
-        f"📅 This Month: ${month_spending:.2f}\n"
-        f"🎯 Total Budgeted: ${total_budgeted:.2f}\n"
-        f"💎 To Be Budgeted: *${to_be_budgeted:.2f}*\n"
-        f"📈 Activities: {len(budget_data.get('activityLog', []))}\n\n"
-        f"[View Dashboard]({WEBAPP_URL})"
+    bot.reply_to(message, 
+        f"📊 *Summary*\n\n"
+        f"💰 Income: ${total_income:.2f}\n"
+        f"💸 Spent: ${total_spent:.2f}\n"
+        f"🎯 Budgeted: ${total_budgeted:.2f}\n"
+        f"📈 Activities: {len(budget_data.get('activityLog', []))}",
+        parse_mode='Markdown'
     )
-    
-    bot.reply_to(message, response, parse_mode='Markdown')
-
-@bot.message_handler(commands=['categories'])
-def list_categories(message):
-    load_budget_from_gist()
-    
-    categories_text = "📁 *Your Budget Categories*\n\n"
-    
-    for cat_id, cat_data in CATEGORIES.items():
-        categories_text += f"{cat_data['name']}\n"
-        for subcat in cat_data['subcategories']:
-            categories_text += f"  • {subcat}\n"
-        categories_text += "\n"
-    
-    bot.reply_to(message, categories_text, parse_mode='Markdown')
 
 @bot.message_handler(commands=['sync'])
 def force_sync(message):
-    bot.reply_to(message, "🔄 Syncing data from cloud...")
     if load_budget_from_gist():
-        bot.reply_to(message, 
-            f"✅ *Data synced successfully!*\n\n"
-            f"📊 Categories: {len(budget_data.get('categories', []))}\n"
-            f"💰 Income: ${sum(inc.get('amount', 0) for inc in budget_data.get('income', [])):.2f}\n"
-            f"📈 Activities: {len(budget_data.get('activityLog', []))}", 
-            parse_mode='Markdown')
+        bot.reply_to(message, "✅ Synced!")
     else:
-        bot.reply_to(message, "❌ Sync failed. Check configuration.")
+        bot.reply_to(message, "❌ Sync failed")
 
-@bot.message_handler(commands=['help'])
-def show_help(message):
-    help_text = (
-        "🤖 *Budget Tracker Pro Bot Commands*\n\n"
-        "*Transaction Management:*\n"
-        "/expense - Add expense (interactive)\n"
-        "/income - Add income (interactive)\n\n"
-        "*Analytics:*\n"
-        "/analytics - View financial summary\n"
-        "/categories - List all categories\n\n"
-        "*Data Management:*\n"
-        "/sync - Force sync from cloud\n\n"
-        "*Other:*\n"
-        "/help - Show this help message\n\n"
-        f"[Open Full App]({WEBAPP_URL})"
-    )
-    bot.reply_to(message, help_text, parse_mode='Markdown')
-
-# Keyboard button handlers
-@bot.message_handler(func=lambda message: message.text == '💸 Add Expense')
+@bot.message_handler(func=lambda m: m.text == '💸 Add Expense')
 def expense_button(message):
     start_expense(message)
 
-@bot.message_handler(func=lambda message: message.text == '💰 Add Income')
+@bot.message_handler(func=lambda m: m.text == '💰 Add Income')
 def income_button(message):
     start_income(message)
 
-@bot.message_handler(func=lambda message: message.text == '📊 Analytics')
+@bot.message_handler(func=lambda m: m.text == '📊 Analytics')
 def analytics_button(message):
     show_analytics(message)
 
-@bot.message_handler(func=lambda message: message.text == '📱 Open App')
+@bot.message_handler(func=lambda m: m.text == '📱 Open App')
 def open_app_button(message):
-    bot.reply_to(message, f"🌐 [Open Budget Tracker Pro]({WEBAPP_URL})", parse_mode='Markdown')
+    bot.reply_to(message, f"🌐 [Open App]({WEBAPP_URL})", parse_mode='Markdown')
 
-# Initialize
-# ... (keep all your existing functions above)
-
-from flask import Flask, request
-
+# Flask webhook setup
 app = Flask(__name__)
 
 @app.route('/' + BOT_TOKEN, methods=['POST'])
 def webhook():
-    """Handle incoming webhook updates from Telegram"""
     json_string = request.get_data().decode('utf-8')
     update = telebot.types.Update.de_json(json_string)
     bot.process_new_updates([update])
@@ -467,39 +361,30 @@ def webhook():
 
 @app.route('/')
 def index():
-    """Health check endpoint"""
     return 'Budget Bot is running!', 200
 
 @app.route('/health')
 def health():
-    """Render health check"""
     return 'OK', 200
 
 if __name__ == '__main__':
-    print("🔄 Loading initial data from Gist...")
+    print("🔄 Loading data...")
     if load_budget_from_gist():
-        print("✅ Initial data loaded successfully")
+        print("✅ Data loaded")
     else:
-        print("⚠️ Failed to load initial data - will retry")
+        print("⚠️ Initial load failed")
     
-    print("\n" + "="*60)
-    print("✅ Budget Tracker Bot - WEBHOOK MODE")
-    print("="*60)
-    print(f"🤖 Bot: @{bot.get_me().username}")
-    print(f"🌍 Port: {PORT}")
-    print("📊 Features: Activity Log + Cloud Sync")
-    print("="*60 + "\n")
+    print("\n" + "="*50)
+    print("✅ BOT RUNNING - WEBHOOK MODE")
+    print("="*50)
+    print(f"Port: {PORT}")
+    print("="*50 + "\n")
     
-    # Remove old webhook
     bot.remove_webhook()
     time.sleep(1)
     
-    # Set webhook URL (will be set after first deploy)
-    # IMPORTANT: Replace YOUR-SERVICE-NAME with your actual Render service name
-    webhook_url = os.environ.get('RENDER_EXTERNAL_URL', f'https://YOUR-SERVICE-NAME.onrender.com')
+    webhook_url = os.environ.get('RENDER_EXTERNAL_URL', 'https://budget-bot.onrender.com')
     bot.set_webhook(url=f'{webhook_url}/{BOT_TOKEN}')
     print(f"✅ Webhook set to: {webhook_url}/{BOT_TOKEN[:10]}...")
     
-    # Start Flask server
     app.run(host='0.0.0.0', port=PORT)
-
