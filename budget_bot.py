@@ -260,7 +260,7 @@ def handle_user_input(message):
             category['activity'] = (category.get('activity', 0) or 0) - amount
             
             # ✅ Log to activityLog (for web app Activity Log)
-            if 'activityLog' not in budget_
+            if 'activityLog' not in budget_data:
                 budget_data['activityLog'] = []
             budget_data['activityLog'].append({
                 'id': transaction['id'],
