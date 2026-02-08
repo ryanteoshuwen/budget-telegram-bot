@@ -359,7 +359,7 @@ def start_income(message):
 def show_analytics(message):
     load_budget_from_gist()
     
-    if not budget_
+    if not budget_data:
         bot.reply_to(message, "⚠️ No data available yet")
         return
     
