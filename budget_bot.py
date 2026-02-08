@@ -451,24 +451,55 @@ def open_app_button(message):
     bot.reply_to(message, f"🌐 [Open Budget Tracker Pro]({WEBAPP_URL})", parse_mode='Markdown')
 
 # Initialize
-print("🔄 Loading initial data from Gist...")
-if load_budget_from_gist():
-    print("✅ Initial data loaded successfully")
-else:
-    print("⚠️ Failed to load initial data - will retry")
+# ... (keep all your existing functions above)
 
-# Start auto-sync thread
-sync_thread = threading.Thread(target=auto_sync_thread, daemon=True)
-sync_thread.start()
-print("🔄 Auto-sync enabled (every 60 seconds)")
+from flask import Flask, request
 
-print("\n" + "="*60)
-print("✅ Budget Tracker Bot is RUNNING - FULL ACTIVITY LOG SUPPORT")
-print("="*60)
-print(f"🤖 Bot: @{bot.get_me().username}")
-print("📊 Features: Real-time sync + Activity Log + Dynamic categories")
-print("🔄 Auto-sync: Every 60 seconds")
-print(f"🌍 Webhook Port: {PORT}")
-print("="*60 + "\n")
+app = Flask(__name__)
 
-bot.infinity_polling()
+@app.route('/' + BOT_TOKEN, methods=['POST'])
+def webhook():
+    """Handle incoming webhook updates from Telegram"""
+    json_string = request.get_data().decode('utf-8')
+    update = telebot.types.Update.de_json(json_string)
+    bot.process_new_updates([update])
+    return '!', 200
+
+@app.route('/')
+def index():
+    """Health check endpoint"""
+    return 'Budget Bot is running!', 200
+
+@app.route('/health')
+def health():
+    """Render health check"""
+    return 'OK', 200
+
+if __name__ == '__main__':
+    print("🔄 Loading initial data from Gist...")
+    if load_budget_from_gist():
+        print("✅ Initial data loaded successfully")
+    else:
+        print("⚠️ Failed to load initial data - will retry")
+    
+    print("\n" + "="*60)
+    print("✅ Budget Tracker Bot - WEBHOOK MODE")
+    print("="*60)
+    print(f"🤖 Bot: @{bot.get_me().username}")
+    print(f"🌍 Port: {PORT}")
+    print("📊 Features: Activity Log + Cloud Sync")
+    print("="*60 + "\n")
+    
+    # Remove old webhook
+    bot.remove_webhook()
+    time.sleep(1)
+    
+    # Set webhook URL (will be set after first deploy)
+    # IMPORTANT: Replace YOUR-SERVICE-NAME with your actual Render service name
+    webhook_url = os.environ.get('RENDER_EXTERNAL_URL', f'https://YOUR-SERVICE-NAME.onrender.com')
+    bot.set_webhook(url=f'{webhook_url}/{BOT_TOKEN}')
+    print(f"✅ Webhook set to: {webhook_url}/{BOT_TOKEN[:10]}...")
+    
+    # Start Flask server
+    app.run(host='0.0.0.0', port=PORT)
+
