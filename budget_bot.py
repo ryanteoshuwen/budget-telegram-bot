@@ -45,7 +45,7 @@ def load_budget_from_gist():
             budget_data = json.loads(budget_json)
             
             # Ensure activityLog exists
-            if 'activityLog' not in budget_
+            if 'activityLog' not in budget_data:
                 budget_data['activityLog'] = []
             
             # Build categories dynamically from budget data
