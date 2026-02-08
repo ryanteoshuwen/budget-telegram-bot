@@ -7,6 +7,7 @@ import time
 import threading
 import os
 from flask import Flask
+from github import InputFileContent 
 
 # Environment variables for cloud deployment
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
@@ -60,7 +61,19 @@ def update_gist(budget_data):
     """Update GitHub Gist with new budget data"""
     try:
         gist = g.get_gist(GIST_ID)
-        gist.edit(files={'budget.json': {'content': json.dumps(budget_data, indent=2)}})
+        
+        # Use InputFileContent for existing file
+        file_content = InputFileContent(
+            content=json.dumps(budget_data, indent=2)
+        )
+        
+        # Update the budget.json file
+        gist.edit(
+            files={
+                'budget.json': file_content
+            }
+        )
+        
         print(f"✅ Synced to Gist at {datetime.now().strftime('%H:%M:%S')}")
         return True
     except Exception as e:
